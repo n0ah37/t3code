@@ -981,6 +981,13 @@ export const OrchestrationV2ProviderThread = Schema.Struct({
   contextUsage: Schema.optional(Schema.NullOr(ThreadTokenUsageSnapshot)).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /**
+   * The provider's running session cost at its last report. Claude carries this
+   * total into a process that resumes the session, so per-turn cost counts from it.
+   */
+  costTotalUsd: Schema.optional(Schema.NullOr(Schema.Number)).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   nativeMetadata: Schema.optional(Schema.NullOr(OrchestrationV2ProviderThreadNativeMetadata)).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
