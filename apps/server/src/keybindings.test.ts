@@ -281,7 +281,8 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
 
         // The user's own mod+shift+r and mod+shift+b keep their chords from the new defaults.
         const userChordCommands = new Set<string>(["preview.hardRefresh", "threadPanel.toggle"]);
-        for (const command of userChordCommands) assert.isFalse(byCommand.has(command));
+        assert.isFalse(byCommand.has("preview.hardRefresh"));
+        assert.isFalse(byCommand.has("threadPanel.toggle"));
         for (const defaultRule of Keybindings.DEFAULT_KEYBINDINGS) {
           if (userChordCommands.has(defaultRule.command)) continue;
           assert.isTrue(byCommand.has(defaultRule.command), `expected ${defaultRule.command}`);
