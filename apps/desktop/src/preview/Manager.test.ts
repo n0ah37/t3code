@@ -640,7 +640,7 @@ describe("PreviewManager", () => {
           } as never);
           yield* manager.createTab("tab_forwarded_keys");
           yield* manager.registerWebview("tab_forwarded_keys", 42);
-          yield* manager.setForwardedShortcuts(
+          yield* manager.setPanelShortcuts(
             [{ key: "l", metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }],
             ["tab_forwarded_keys"],
           );

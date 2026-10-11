@@ -4752,7 +4752,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     setAnnotationTheme,
     setAudioMuted,
     setColorScheme,
-    setForwardedShortcuts: (
+    setPanelShortcuts: (
       shortcuts: ReadonlyArray<DesktopPreviewForwardedShortcut>,
       tabIds: ReadonlyArray<string>,
     ) =>
@@ -5173,7 +5173,7 @@ export class PreviewManager extends Context.Service<
       input: PreviewAutomationWaitForInput,
     ) => Effect.Effect<void, PreviewManagerError>;
     /** Chords to take from focused pages, and the tabs whose pages give them up. */
-    readonly setForwardedShortcuts: (
+    readonly setPanelShortcuts: (
       shortcuts: ReadonlyArray<DesktopPreviewForwardedShortcut>,
       tabIds: ReadonlyArray<string>,
     ) => Effect.Effect<void>;
@@ -5277,7 +5277,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     automationScroll: operations.automationScroll,
     automationEvaluate: operations.automationEvaluate,
     automationWaitFor: operations.automationWaitFor,
-    setForwardedShortcuts: operations.setForwardedShortcuts,
+    setPanelShortcuts: operations.setPanelShortcuts,
     subscribeStateChanges: operations.subscribeStateChanges,
     subscribePointerEvents: operations.subscribePointerEvents,
     subscribeRecordingFrames: operations.subscribeRecordingFrames,

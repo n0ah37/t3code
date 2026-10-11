@@ -104,7 +104,7 @@ export function ElectronBrowserHost() {
     const preview = window.desktopBridge?.preview;
     if (!preview) return;
     void preview
-      .setForwardedShortcuts(previewForwardedShortcuts(keybindings), panelTabIds)
+      .setPanelShortcuts(previewForwardedShortcuts(keybindings), panelTabIds)
       .catch(() => undefined);
   }, [keybindings, panelTabIds]);
   useEffect(() => {

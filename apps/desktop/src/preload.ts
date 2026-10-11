@@ -407,8 +407,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       return () =>
         ipcRenderer.removeListener(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, wrappedListener);
     },
-    setForwardedShortcuts: (shortcuts, tabIds) =>
-      ipcRenderer.invoke(IpcChannels.PREVIEW_SET_FORWARDED_SHORTCUTS_CHANNEL, {
+    setPanelShortcuts: (shortcuts, tabIds) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_SET_PANEL_SHORTCUTS_CHANNEL, {
         shortcuts,
         tabIds,
       }),

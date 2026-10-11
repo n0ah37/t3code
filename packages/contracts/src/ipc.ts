@@ -1084,7 +1084,7 @@ export const DesktopPreviewForwardedShortcutSchema = Schema.Struct({
 });
 export type DesktopPreviewForwardedShortcut = typeof DesktopPreviewForwardedShortcutSchema.Type;
 
-export const DesktopPreviewSetForwardedShortcutsInputSchema = Schema.Struct({
+export const DesktopPreviewSetPanelShortcutsInputSchema = Schema.Struct({
   shortcuts: Schema.Array(DesktopPreviewForwardedShortcutSchema).check(Schema.isMaxLength(256)),
   /** Desktop tabs shown in the right panel; other pages, like the floating player, keep every key. */
   tabIds: Schema.Array(DesktopPreviewTabIdSchema).check(Schema.isMaxLength(256)),
@@ -1381,7 +1381,7 @@ export interface DesktopPreviewBridge {
   onStateChange: (listener: (tabId: string, state: DesktopPreviewTabState) => void) => () => void;
   onPointerEvent: (listener: (event: DesktopPreviewPointerEvent) => void) => () => void;
   /** Replaces the chords taken from a focused page, and the tabs whose pages give them up. */
-  setForwardedShortcuts: (
+  setPanelShortcuts: (
     shortcuts: ReadonlyArray<DesktopPreviewForwardedShortcut>,
     tabIds: ReadonlyArray<string>,
   ) => Promise<void>;
