@@ -199,13 +199,18 @@ export function claudeProviderTurnTokenUsage(
   },
   modelSelection: ModelSelection,
   updatedAt: string,
+  /** The lifetime an earlier response in this process wrote. A response that
+      only read the cache refreshed that same entry, so it keeps the lifetime. */
+  knownPromptCacheTtlMs?: number,
 ) {
   const inputTokens =
     usage.input_tokens +
     (usage.cache_creation_input_tokens ?? 0) +
     (usage.cache_read_input_tokens ?? 0);
   const outputTokens = usage.output_tokens;
-  const promptCacheTtlMs = claudePromptCacheTtlMs(usage.cache_creation);
+  const promptCacheTtlMs =
+    claudePromptCacheTtlMs(usage.cache_creation) ??
+    ((usage.cache_read_input_tokens ?? 0) > 0 ? knownPromptCacheTtlMs : undefined);
   return {
     usedTokens: inputTokens + outputTokens,
     maxTokens: claudeContextWindow(modelSelection),
@@ -3010,6 +3015,8 @@ interface ClaudeLiveQueryContext {
   stopping: boolean;
   // The process's running `total_cost_usd` already attributed to turns.
   attributedCostUsd: number;
+  // The prompt cache lifetime this process last wrote.
+  promptCacheTtlMs?: number;
   // Registry entries still running when this process opened. Their process
   // is gone and never reports their end; any later task_started replaces the
   // entry, so an entry still in this set runs nowhere.
@@ -6972,6 +6979,16 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               message.message.usage !== undefined &&
               message.message.model !== "<synthetic>"
             ) {
+              const usageQuery = yield* Ref.get(queryContext);
+              const tokenUsage = claudeProviderTurnTokenUsage(
+                message.message.usage,
+                context.input.modelSelection,
+                DateTime.formatIso(now),
+                usageQuery?.promptCacheTtlMs,
+              );
+              if (usageQuery !== null && tokenUsage.promptCacheTtlMs !== undefined) {
+                usageQuery.promptCacheTtlMs = tokenUsage.promptCacheTtlMs;
+              }
               yield* emitProviderEvent({
                 type: "provider_turn.updated",
                 driver: CLAUDE_PROVIDER,
@@ -6990,11 +7007,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   status: "running",
                   startedAt: context.startedAt,
                   completedAt: null,
-                  tokenUsage: claudeProviderTurnTokenUsage(
-                    message.message.usage,
-                    context.input.modelSelection,
-                    DateTime.formatIso(now),
-                  ),
+                  tokenUsage,
                 },
               });
             }

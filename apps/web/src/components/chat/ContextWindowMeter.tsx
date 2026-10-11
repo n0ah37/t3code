@@ -1,12 +1,33 @@
+import { useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import {
   formatContextWindowCompactionMessage,
+  formatPromptCacheRemaining,
   formatSessionCost,
 } from "./ContextWindowMeter.logic";
 import { Minimize2Icon } from "lucide-react";
 import { composerFloatingLayerProps } from "./composerEventScope";
+
+/** Ticks once a second, and only while the popover that holds it is open. */
+function PromptCacheTimerRow(props: { expiresAtMs: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  const expired = now >= props.expiresAtMs;
+  useEffect(() => {
+    if (expired) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [expired]);
+  return (
+    <div className="flex items-center justify-between gap-3 text-2xs leading-4">
+      <span className="text-secondary-label">Cache</span>
+      <span className="font-medium tabular-nums text-secondary-label">
+        {expired ? "Expired" : `${formatPromptCacheRemaining(props.expiresAtMs - now)} left`}
+      </span>
+    </div>
+  );
+}
 
 function formatPercentage(value: number | null): string | null {
   if (value === null || !Number.isFinite(value)) {
@@ -143,6 +164,9 @@ export function ContextWindowMeter(props: {
                 {formatSessionCost(usage.cost ?? null, usage.unpricedTurnCount ?? 0)}
               </span>
             </div>
+          ) : null}
+          {usage.promptCacheExpiresAtMs !== undefined ? (
+            <PromptCacheTimerRow expiresAtMs={usage.promptCacheExpiresAtMs} />
           ) : null}
           {usage.compactsAutomatically ? (
             <div className="mt-1 text-pretty text-secondary-label text-2xs font-medium">
