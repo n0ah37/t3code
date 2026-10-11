@@ -981,6 +981,13 @@ export const OrchestrationV2ProviderThread = Schema.Struct({
   contextUsage: Schema.optional(Schema.NullOr(ThreadTokenUsageSnapshot)).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /**
+   * The provider's running session cost at its last report. Claude carries this
+   * total into a process that resumes the session, so per-turn cost counts from it.
+   */
+  costTotalUsd: Schema.optional(Schema.NullOr(Schema.Number)).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   nativeMetadata: Schema.optional(Schema.NullOr(OrchestrationV2ProviderThreadNativeMetadata)).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -1089,6 +1096,11 @@ export const OrchestrationV2ProviderTurn = Schema.Struct({
   completedAt: Schema.NullOr(Schema.DateTimeUtc),
   tokenUsage: Schema.optional(OrchestrationV2ProviderTurnTokenUsage),
   turnTokenUsage: Schema.optional(TurnTokenUsage),
+  /** The provider's own USD estimate for this turn. Absent when the provider
+      reports no cost. */
+  costUsd: Schema.optional(
+    Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0)),
+  ),
 });
 export type OrchestrationV2ProviderTurn = typeof OrchestrationV2ProviderTurn.Type;
 

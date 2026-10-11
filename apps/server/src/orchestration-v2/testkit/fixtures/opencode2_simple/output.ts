@@ -48,4 +48,6 @@ export function assertOpenCode2SimpleOutput(
     usedTokens: 8701 + 489 + 113,
     maxTokens: 524288,
   });
+  // A free model's steps cost 0, which is a price, not a missing one.
+  assert.equal(providerTurn?.costUsd, 0);
 }

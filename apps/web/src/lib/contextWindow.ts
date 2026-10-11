@@ -22,6 +22,8 @@ export type ContextWindowSnapshot = NullableContextWindowUsage & {
   readonly usedPercentage: number | null;
   readonly remainingPercentage: number | null;
   readonly updatedAt: string;
+  /** Finished turns the provider did not price; absent when there are none. */
+  readonly unpricedTurnCount?: number;
 };
 
 /** Newest usage report across a thread's provider turns. Snapshots order turns
@@ -38,6 +40,35 @@ export function latestProviderTurnTokenUsage(
     }
   }
   return latest;
+}
+
+/**
+ * Puts the thread's cost on its snapshot: the sum of every turn the provider
+ * priced, and how many finished turns it did not price (turns from before cost
+ * was recorded, or providers that report none), so a partial sum never reads
+ * as the whole session. A cost the provider sent with its context report wins.
+ */
+export function withThreadCost(
+  snapshot: ContextWindowSnapshot | null,
+  turns: ReadonlyArray<
+    Pick<OrchestrationV2ProviderTurn, "costUsd" | "completedAt" | "turnTokenUsage">
+  >,
+): ContextWindowSnapshot | null {
+  if (snapshot === null || snapshot.cost !== null) return snapshot;
+  let costUsd: number | null = null;
+  let unpricedTurnCount = 0;
+  for (const turn of turns) {
+    if (turn.costUsd !== undefined) costUsd = (costUsd ?? 0) + turn.costUsd;
+    // A turn stopped before any usage report is billed in the next turn's report.
+    else if (turn.completedAt !== null && turn.turnTokenUsage?.usageStatus !== "unavailable") {
+      unpricedTurnCount += 1;
+    }
+  }
+  return {
+    ...snapshot,
+    ...(costUsd === null ? {} : { cost: { amount: costUsd, currency: "USD" } }),
+    ...(unpricedTurnCount === 0 ? {} : { unpricedTurnCount }),
+  };
 }
 
 /** Prefers the provider's live usage report (#8144); falls back to the last compaction item. */
@@ -76,7 +107,7 @@ export function deriveLatestContextWindowSnapshot(
       durationMs: null,
       compactsAutomatically: true,
       autoCompactThreshold: null,
-      cost: null,
+      cost: providerThread?.contextUsage?.cost ?? null,
       updatedAt: liveUsage.updatedAt,
     };
   }

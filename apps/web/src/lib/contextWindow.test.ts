@@ -4,6 +4,7 @@ import {
   deriveLatestContextWindowSnapshot,
   formatContextWindowTokens,
   latestProviderTurnTokenUsage,
+  withThreadCost,
 } from "./contextWindow";
 
 describe("V2 context window presentation", () => {
@@ -98,5 +99,57 @@ describe("latestProviderTurnTokenUsage", () => {
       usage(90_000, "2026-06-20T09:00:00.000Z"),
     ]);
     expect(latest?.usedTokens).toBe(300_000);
+  });
+});
+
+describe("withThreadCost", () => {
+  const snapshot = deriveLatestContextWindowSnapshot([], {
+    usedTokens: 42_000,
+    updatedAt: "2026-08-27T00:00:00.000Z",
+  });
+  const completedAt = DateTime.makeUnsafe("2026-08-27T00:00:00.000Z");
+
+  it("adds up the cost of every turn the provider priced", () => {
+    const priced = withThreadCost(snapshot, [
+      { costUsd: 0.25, completedAt },
+      { completedAt: null },
+      { costUsd: 0.5, completedAt },
+    ]);
+    expect(priced?.cost).toEqual({ amount: 0.75, currency: "USD" });
+    expect(priced?.unpricedTurnCount).toBeUndefined();
+  });
+
+  it("counts finished turns with no price, so a partial sum is not the whole session", () => {
+    const mixed = withThreadCost(snapshot, [
+      { completedAt },
+      { completedAt },
+      { costUsd: 0.5, completedAt },
+    ]);
+    expect(mixed?.cost).toEqual({ amount: 0.5, currency: "USD" });
+    expect(mixed?.unpricedTurnCount).toBe(2);
+
+    const unpriced = withThreadCost(snapshot, [{ completedAt }]);
+    expect(unpriced?.cost).toBeNull();
+    expect(unpriced?.unpricedTurnCount).toBe(1);
+  });
+
+  it("leaves out a turn stopped before any usage, whose cost the next turn reports", () => {
+    const stopped = withThreadCost(snapshot, [
+      {
+        completedAt,
+        turnTokenUsage: {
+          usageScope: "main_agent",
+          hasSubagents: false,
+          usageStatus: "unavailable",
+        },
+      },
+      { costUsd: 0.5, completedAt },
+    ]);
+    expect(stopped?.cost).toEqual({ amount: 0.5, currency: "USD" });
+    expect(stopped?.unpricedTurnCount).toBeUndefined();
+  });
+
+  it("says nothing about cost before any turn finishes", () => {
+    expect(withThreadCost(snapshot, [{ completedAt: null }])).toEqual(snapshot);
   });
 });

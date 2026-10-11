@@ -49,5 +49,12 @@ export function assertMultiTurnClaudeOutput(
     assert.isString(queryOpenFrames[1]?.options?.resume);
   } else {
     assert.lengthOf(queryOpenFrames, 1);
+    // One process: each turn costs the growth of its running total_cost_usd.
+    const costs = projection.providerTurns
+      .toSorted((left, right) => left.ordinal - right.ordinal)
+      .map((turn) => turn.costUsd);
+    assert.lengthOf(costs, 2);
+    assert.closeTo(costs[0] ?? 0, 0.01171425, 1e-9);
+    assert.closeTo(costs[1] ?? 0, 0.0154371 - 0.01171425, 1e-9);
   }
 }

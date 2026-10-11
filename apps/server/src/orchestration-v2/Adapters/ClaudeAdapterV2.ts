@@ -217,6 +217,23 @@ export function claudeProviderTurnTokenUsage(
     updatedAt,
   };
 }
+/**
+ * A turn's share of its process's running cost. `total_cost_usd` accumulates
+ * across a process's turns, so a turn costs the growth since the last attributed
+ * total. Growth from wake turns with no T3 turn carries into the next turn. A
+ * zeroed or unchanged total (crash or replayed results) is not a report; a
+ * smaller one means `/clear` restarted the count.
+ */
+export function claudeTurnCostUsd(
+  attributedCostUsd: number,
+  totalCostUsd: number | undefined,
+): number | undefined {
+  if (totalCostUsd === undefined || !Number.isFinite(totalCostUsd) || totalCostUsd <= 0) {
+    return undefined;
+  }
+  if (totalCostUsd === attributedCostUsd) return undefined;
+  return totalCostUsd > attributedCostUsd ? totalCostUsd - attributedCostUsd : totalCostUsd;
+}
 export const CLAUDE_DEFAULT_INSTANCE_ID = defaultInstanceIdForDriver(CLAUDE_PROVIDER);
 const DEFAULT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({});
 // Entry extensions the Claude SDK runs through node instead of executing.
@@ -2991,6 +3008,8 @@ interface ClaudeLiveQueryContext {
   permissionMode: PermissionMode;
   // Stop, rollback or fork is closing this process; its work is ending.
   stopping: boolean;
+  // The process's running `total_cost_usd` already attributed to turns.
+  attributedCostUsd: number;
   // Registry entries still running when this process opened. Their process
   // is gone and never reports their end; any later task_started replaces the
   // entry, so an entry still in this set runs nowhere.
@@ -5815,6 +5834,15 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           }
 
           const threadDisposition = input.threadDisposition ?? "reusable";
+          const costQuery = yield* Ref.get(queryContext);
+          const totalCostUsd = input.result?.total_cost_usd;
+          const costUsd =
+            costQuery === null
+              ? undefined
+              : claudeTurnCostUsd(costQuery.attributedCostUsd, totalCostUsd);
+          if (costQuery !== null && costUsd !== undefined && totalCostUsd !== undefined) {
+            costQuery.attributedCostUsd = totalCostUsd;
+          }
           const terminalEvent: ProviderAdapter.ProviderAdapterV2Event =
             input.status === "failed"
               ? {
@@ -5864,6 +5892,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                       input.context.subagentsByToolUseId.size > 0,
                     input.status,
                   ),
+                  ...(costUsd === undefined ? {} : { costUsd }),
                 },
               }),
               // Surface this native thread's roster before the root turn
@@ -5931,6 +5960,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     input.context.input.runOrdinal,
                   lastRunOrdinal: input.context.input.runOrdinal,
                   pendingBackgroundTasks: claudePendingBackgroundTasksFromRoster(roster),
+                  ...(costQuery === null || costQuery.attributedCostUsd <= 0
+                    ? {}
+                    : { costTotalUsd: costQuery.attributedCostUsd }),
                   status: input.status === "completed" ? "active" : "idle",
                   updatedAt: input.completedAt,
                 };
@@ -8319,6 +8351,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             openedPermissionMode: queryOptions.permissionMode,
             permissionMode: queryOptions.permissionMode,
             stopping: false,
+            // A resumed session's running total starts from its earlier processes' cost.
+            attributedCostUsd: !shouldResume
+              ? 0
+              : existing?.nativeThreadId === nativeThreadId
+                ? existing.attributedCostUsd
+                : (turnInput.providerThread.costTotalUsd ?? 0),
             subagentsFromEarlierProcesses: new Set(
               [...(yield* Ref.get(sessionSubagentsByTaskId)).values()].filter(
                 (subagent) => subagent.task.status === "running",
