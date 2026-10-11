@@ -6,6 +6,7 @@ import {
   hasAvailableCompactionProvider,
   hasDismissedResumeCompaction,
   formatContextWindowCost,
+  formatSessionCost,
   resolveContextWindowModelDisplayName,
   shouldOfferResumeCompaction,
   shouldReserveContextWindowMeter,
@@ -305,5 +306,15 @@ describe("formatContextWindowCost", () => {
   it("keeps ordinary and sub-cent ACP costs readable", () => {
     expect(formatContextWindowCost({ amount: 0.42, currency: "USD" })).toBe("USD 0.42");
     expect(formatContextWindowCost({ amount: 0.0042, currency: "USD" })).toBe("USD 0.0042");
+  });
+});
+
+describe("formatSessionCost", () => {
+  it("says when part of the session went unpriced", () => {
+    const cost = { amount: 0.42, currency: "USD" };
+    expect(formatSessionCost(cost, 0)).toBe("USD 0.42");
+    expect(formatSessionCost(cost, 1)).toBe("USD 0.42 + 1 unpriced turn");
+    expect(formatSessionCost(cost, 3)).toBe("USD 0.42 + 3 unpriced turns");
+    expect(formatSessionCost(null, 3)).toBe("Unpriced");
   });
 });

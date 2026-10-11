@@ -147,3 +147,14 @@ export function formatContextWindowCost(cost: {
   const fractionDigits = Math.abs(cost.amount) > 0 && Math.abs(cost.amount) < 0.01 ? 4 : 2;
   return `${cost.currency} ${cost.amount.toFixed(fractionDigits)}`;
 }
+
+/** "USD 0.42", "USD 0.42 + 3 unpriced turns", or "Unpriced" when nothing was priced. */
+export function formatSessionCost(
+  cost: { readonly amount: number; readonly currency: string } | null,
+  unpricedTurnCount: number,
+): string {
+  if (cost === null) return "Unpriced";
+  const priced = formatContextWindowCost(cost);
+  if (unpricedTurnCount === 0) return priced;
+  return `${priced} + ${unpricedTurnCount} unpriced ${unpricedTurnCount === 1 ? "turn" : "turns"}`;
+}

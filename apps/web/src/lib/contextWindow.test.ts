@@ -116,13 +116,21 @@ describe("withThreadCost", () => {
       { costUsd: 0.5, completedAt },
     ]);
     expect(priced?.cost).toEqual({ amount: 0.75, currency: "USD" });
-    expect(priced?.costUnreported).toBeUndefined();
+    expect(priced?.unpricedTurnCount).toBeUndefined();
   });
 
-  it("marks finished turns with no price as unreported instead of free", () => {
+  it("counts finished turns with no price, so a partial sum is not the whole session", () => {
+    const mixed = withThreadCost(snapshot, [
+      { completedAt },
+      { completedAt },
+      { costUsd: 0.5, completedAt },
+    ]);
+    expect(mixed?.cost).toEqual({ amount: 0.5, currency: "USD" });
+    expect(mixed?.unpricedTurnCount).toBe(2);
+
     const unpriced = withThreadCost(snapshot, [{ completedAt }]);
     expect(unpriced?.cost).toBeNull();
-    expect(unpriced?.costUnreported).toBe(true);
+    expect(unpriced?.unpricedTurnCount).toBe(1);
   });
 
   it("says nothing about cost before any turn finishes", () => {

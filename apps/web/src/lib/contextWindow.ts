@@ -22,8 +22,8 @@ export type ContextWindowSnapshot = NullableContextWindowUsage & {
   readonly usedPercentage: number | null;
   readonly remainingPercentage: number | null;
   readonly updatedAt: string;
-  /** The thread finished turns, but its provider priced none of them. */
-  readonly costUnreported?: true;
+  /** Finished turns the provider did not price; absent when there are none. */
+  readonly unpricedTurnCount?: number;
 };
 
 /** Newest usage report across a thread's provider turns. Snapshots order turns
@@ -42,32 +42,28 @@ export function latestProviderTurnTokenUsage(
   return latest;
 }
 
-/** What the provider says the thread's turns cost, or null when it priced none. */
-export function sumProviderTurnCostUsd(
-  turns: ReadonlyArray<Pick<OrchestrationV2ProviderTurn, "costUsd">>,
-): number | null {
-  let total: number | null = null;
-  for (const { costUsd } of turns) {
-    if (costUsd !== undefined) total = (total ?? 0) + costUsd;
-  }
-  return total;
-}
-
 /**
- * Puts the thread's cost on its snapshot. A cost the provider sent with its
- * context report wins; turns that finished unpriced mark the cost unreported
- * rather than showing zero.
+ * Puts the thread's cost on its snapshot: the sum of every turn the provider
+ * priced, and how many finished turns it did not price (turns from before cost
+ * was recorded, or providers that report none), so a partial sum never reads
+ * as the whole session. A cost the provider sent with its context report wins.
  */
 export function withThreadCost(
   snapshot: ContextWindowSnapshot | null,
   turns: ReadonlyArray<Pick<OrchestrationV2ProviderTurn, "costUsd" | "completedAt">>,
 ): ContextWindowSnapshot | null {
   if (snapshot === null || snapshot.cost !== null) return snapshot;
-  const costUsd = sumProviderTurnCostUsd(turns);
-  if (costUsd !== null) return { ...snapshot, cost: { amount: costUsd, currency: "USD" } };
-  return turns.some((turn) => turn.completedAt !== null)
-    ? { ...snapshot, costUnreported: true }
-    : snapshot;
+  let costUsd: number | null = null;
+  let unpricedTurnCount = 0;
+  for (const turn of turns) {
+    if (turn.costUsd !== undefined) costUsd = (costUsd ?? 0) + turn.costUsd;
+    else if (turn.completedAt !== null) unpricedTurnCount += 1;
+  }
+  return {
+    ...snapshot,
+    ...(costUsd === null ? {} : { cost: { amount: costUsd, currency: "USD" } }),
+    ...(unpricedTurnCount === 0 ? {} : { unpricedTurnCount }),
+  };
 }
 
 /** Prefers the provider's live usage report (#8144); falls back to the last compaction item. */

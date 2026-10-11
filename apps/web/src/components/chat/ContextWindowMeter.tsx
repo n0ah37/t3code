@@ -3,7 +3,7 @@ import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/con
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import {
   formatContextWindowCompactionMessage,
-  formatContextWindowCost,
+  formatSessionCost,
 } from "./ContextWindowMeter.logic";
 import { Minimize2Icon } from "lucide-react";
 import { composerFloatingLayerProps } from "./composerEventScope";
@@ -136,11 +136,11 @@ export function ContextWindowMeter(props: {
               </span>
             </div>
           ) : null}
-          {usage.cost != null || usage.costUnreported ? (
+          {usage.cost != null || usage.unpricedTurnCount ? (
             <div className="flex items-center justify-between gap-3 text-2xs leading-4">
               <span className="text-secondary-label">Session cost</span>
               <span className="font-medium tabular-nums text-secondary-label">
-                {usage.cost != null ? formatContextWindowCost(usage.cost) : "Unpriced"}
+                {formatSessionCost(usage.cost ?? null, usage.unpricedTurnCount ?? 0)}
               </span>
             </div>
           ) : null}
