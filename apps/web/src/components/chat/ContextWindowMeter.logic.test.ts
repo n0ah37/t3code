@@ -6,6 +6,7 @@ import {
   hasAvailableCompactionProvider,
   hasDismissedResumeCompaction,
   formatContextWindowCost,
+  formatPromptCacheRemaining,
   formatSessionCost,
   resolveContextWindowModelDisplayName,
   shouldOfferResumeCompaction,
@@ -318,5 +319,14 @@ describe("formatSessionCost", () => {
     expect(formatSessionCost(cost, 1)).toBe("$0.4200 + 1 unpriced turn");
     expect(formatSessionCost(cost, 3)).toBe("$0.4200 + 3 unpriced turns");
     expect(formatSessionCost(null, 3)).toBe("Unpriced");
+  });
+});
+
+describe("formatPromptCacheRemaining", () => {
+  it("counts down in minutes and seconds, with hours for a full hour", () => {
+    expect(formatPromptCacheRemaining(60 * 60_000)).toBe("1:00:00");
+    expect(formatPromptCacheRemaining(42 * 60_000 + 6_200)).toBe("42:07");
+    expect(formatPromptCacheRemaining(5_000)).toBe("0:05");
+    expect(formatPromptCacheRemaining(0)).toBe("Expired");
   });
 });
