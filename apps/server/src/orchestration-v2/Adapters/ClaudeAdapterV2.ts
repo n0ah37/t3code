@@ -6111,6 +6111,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     input.context.input.runOrdinal,
                   lastRunOrdinal: input.context.input.runOrdinal,
                   pendingBackgroundTasks: claudePendingBackgroundTasksFromRoster(roster),
+                  ...(costQuery === null || costQuery.attributedCostUsd <= 0
+                    ? {}
+                    : { costTotalUsd: costQuery.attributedCostUsd }),
                   status: input.status === "completed" ? "active" : "idle",
                   updatedAt: input.completedAt,
                 };
@@ -8508,7 +8511,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             openedPermissionMode: queryOptions.permissionMode,
             permissionMode: queryOptions.permissionMode,
             stopping: false,
-            attributedCostUsd: 0,
+            // A resumed session's running total starts from its earlier processes' cost.
+            attributedCostUsd: !shouldResume
+              ? 0
+              : existing?.nativeThreadId === nativeThreadId
+                ? existing.attributedCostUsd
+                : (turnInput.providerThread.costTotalUsd ?? 0),
             options: queryOptions,
             subagentsFromEarlierProcesses: new Set(
               [...(yield* Ref.get(sessionSubagentsByTaskId)).values()].filter(

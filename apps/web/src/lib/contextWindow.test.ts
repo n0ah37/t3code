@@ -147,6 +147,22 @@ describe("withThreadCost", () => {
     expect(unpriced?.unpricedTurnCount).toBe(1);
   });
 
+  it("leaves out a turn stopped before any usage, whose cost the next turn reports", () => {
+    const stopped = withThreadCost(snapshot, [
+      {
+        completedAt,
+        turnTokenUsage: {
+          usageScope: "main_agent",
+          hasSubagents: false,
+          usageStatus: "unavailable",
+        },
+      },
+      { costUsd: 0.5, completedAt },
+    ]);
+    expect(stopped?.cost).toEqual({ amount: 0.5, currency: "USD" });
+    expect(stopped?.unpricedTurnCount).toBeUndefined();
+  });
+
   it("says nothing about cost before any turn finishes", () => {
     expect(withThreadCost(snapshot, [{ completedAt: null }])).toEqual(snapshot);
   });

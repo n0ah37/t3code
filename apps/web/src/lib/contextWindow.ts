@@ -63,14 +63,19 @@ function promptCacheExpiry(
  */
 export function withThreadCost(
   snapshot: ContextWindowSnapshot | null,
-  turns: ReadonlyArray<Pick<OrchestrationV2ProviderTurn, "costUsd" | "completedAt">>,
+  turns: ReadonlyArray<
+    Pick<OrchestrationV2ProviderTurn, "costUsd" | "completedAt" | "turnTokenUsage">
+  >,
 ): ContextWindowSnapshot | null {
   if (snapshot === null || snapshot.cost !== null) return snapshot;
   let costUsd: number | null = null;
   let unpricedTurnCount = 0;
   for (const turn of turns) {
     if (turn.costUsd !== undefined) costUsd = (costUsd ?? 0) + turn.costUsd;
-    else if (turn.completedAt !== null) unpricedTurnCount += 1;
+    // A turn stopped before any usage report is billed in the next turn's report.
+    else if (turn.completedAt !== null && turn.turnTokenUsage?.usageStatus !== "unavailable") {
+      unpricedTurnCount += 1;
+    }
   }
   return {
     ...snapshot,

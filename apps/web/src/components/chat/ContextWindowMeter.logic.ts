@@ -144,11 +144,15 @@ export function formatContextWindowCost(cost: {
   readonly amount: number;
   readonly currency: string;
 }): string {
+  // Claude Code's `/usage` format: cents above $0.50, four places below.
+  if (cost.currency === "USD") {
+    return `$${cost.amount.toFixed(Math.abs(cost.amount) > 0.5 ? 2 : 4)}`;
+  }
   const fractionDigits = Math.abs(cost.amount) > 0 && Math.abs(cost.amount) < 0.01 ? 4 : 2;
   return `${cost.currency} ${cost.amount.toFixed(fractionDigits)}`;
 }
 
-/** "USD 0.42", "USD 0.42 + 3 unpriced turns", or "Unpriced" when nothing was priced. */
+/** "$0.4200", "$4.21 + 3 unpriced turns", or "Unpriced" when nothing was priced. */
 export function formatSessionCost(
   cost: { readonly amount: number; readonly currency: string } | null,
   unpricedTurnCount: number,
