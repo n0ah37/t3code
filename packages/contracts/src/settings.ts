@@ -655,6 +655,19 @@ export type CodexSettings = typeof CodexSettings.Type;
 // the update that introduced it.
 const CLAUDE_AUTO_COMPACT_WINDOW_PATTERN = /^(?:|[1-9]\d{5}|1000000)$/;
 
+/** How long an idle Claude thread's prompt cache is kept warm after its last turn. */
+export const CLAUDE_KEEP_CACHE_WARM_OPTIONS = [
+  { value: "off", label: "Off" },
+  { value: "1h", label: "1 hour" },
+  { value: "2h", label: "2 hours" },
+  { value: "4h", label: "4 hours" },
+  { value: "8h", label: "8 hours" },
+] as const satisfies ReadonlyArray<ProviderSettingsFormOption>;
+export const ClaudeKeepCacheWarm = Schema.Literals(
+  CLAUDE_KEEP_CACHE_WARM_OPTIONS.map((option) => option.value),
+);
+export type ClaudeKeepCacheWarm = typeof ClaudeKeepCacheWarm.Type;
+
 export const ClaudeSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
@@ -706,9 +719,22 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    keepCacheWarm: ClaudeKeepCacheWarm.pipe(
+      Schema.withDecodingDefault(Effect.succeed("off" as const)),
+      Schema.annotateKey({
+        title: "Keep cache warm",
+        description:
+          "After a turn, re-read the conversation in a hidden copy shortly before the 1-hour cache expires, so returning later is cheap. Each ping re-reads the whole context.",
+        providerSettingsForm: {
+          control: "select",
+          options: CLAUDE_KEEP_CACHE_WARM_OPTIONS,
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
   },
   {
-    order: ["binaryPath", "homePath", "autoCompactWindow", "launchArgs"],
+    order: ["binaryPath", "homePath", "autoCompactWindow", "keepCacheWarm", "launchArgs"],
   },
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;

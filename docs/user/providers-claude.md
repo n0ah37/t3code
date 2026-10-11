@@ -57,6 +57,14 @@ history for that message. The cache lasts about an hour on a Claude
 subscription and 5 minutes with an API key, Bedrock, or Vertex. See [commands and skills](./composer.md#commands-and-skills) for using
 composer commands.
 
+To keep that cache from expiring while you step away, set **Keep cache warm** in the
+Claude provider settings to 1, 2, 4, or 8 hours. Shortly before the hour-long cache
+would run out, T3 Code re-reads the conversation in a hidden copy that it deletes
+afterwards, so the thread itself is unchanged. Each ping re-reads the whole context
+and counts toward your usage. Sending a message stops the pings, and the context
+meter's **Cache** row shows the time left. API-key and cloud-provider caches last 5
+minutes and are not pinged.
+
 ## Usage limits
 
 If your Claude subscription runs out of usage mid-turn, the thread shows which
