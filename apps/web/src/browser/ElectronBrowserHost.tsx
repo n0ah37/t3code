@@ -1,19 +1,23 @@
 "use client";
 
+import { useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { AuthPreviewOperateScope, FILL_PREVIEW_VIEWPORT } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
 import { type ComponentProps, useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 
 import { isElectron } from "~/env";
 import { useClientSettingsHydrated } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
+import { previewForwardedShortcuts } from "~/keybindings";
 import { useActivePreviewSessions } from "~/previewStateStore";
 import { previewEnvironment } from "~/state/preview";
 import { useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { selectActiveRightPanelSurface, useRightPanelStore } from "~/rightPanelStore";
+import { primaryServerKeybindingsAtom } from "~/state/server";
 
 import { readPreviewAnnotationTheme } from "./annotationTheme";
 import { useBrowserDefaults } from "./browserDefaults";
@@ -122,6 +126,39 @@ export function ElectronBrowserHost() {
       });
     });
   }, [openPreview]);
+
+  // A focused page receives keys in its own process, out of reach of the
+  // app's window listeners. Main takes the browser-window chords from pages
+  // shown as a panel tab; replaying them on the focused webview runs the
+  // normal shortcut handlers with preview focus. The floating player is not a
+  // panel tab, so its page keeps every key.
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const panelTabIds = useRightPanelStore(
+    useShallow((state) =>
+      sessions.flatMap(({ threadRef, snapshot, runtimeTabId }) => {
+        const surface = selectActiveRightPanelSurface(state.byThreadKey, threadRef);
+        return surface?.kind === "preview" && surface.resourceId === snapshot.tabId
+          ? [runtimeTabId]
+          : [];
+      }),
+    ),
+  );
+  useEffect(() => {
+    const preview = window.desktopBridge?.preview;
+    if (!preview) return;
+    void preview
+      .setPanelShortcuts(previewForwardedShortcuts(keybindings), panelTabIds)
+      .catch(() => undefined);
+  }, [keybindings, panelTabIds]);
+  useEffect(() => {
+    const preview = window.desktopBridge?.preview;
+    if (!preview) return;
+    return preview.onShortcut((shortcut) => {
+      (document.activeElement ?? document.body).dispatchEvent(
+        new KeyboardEvent("keydown", { ...shortcut, bubbles: true, cancelable: true }),
+      );
+    });
+  }, []);
 
   if (!isElectron) return null;
   return (

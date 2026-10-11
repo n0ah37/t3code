@@ -4,8 +4,10 @@ import {
   type KeybindingWhenNode,
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
   type ResolvedKeybindingsConfig,
+  RIGHT_PANEL_JUMP_KEYBINDING_COMMANDS,
   THREAD_JUMP_KEYBINDING_COMMANDS,
   type ModelPickerJumpKeybindingCommand,
+  type RightPanelJumpKeybindingCommand,
   type ThreadJumpKeybindingCommand,
 } from "@t3tools/contracts";
 import {
@@ -106,33 +108,28 @@ export function shortcutConflictKey(
   ].join("|");
 }
 
+/** Bindings that own their chord in the given context, most recent rule first. */
+function effectiveBindings(keybindings: ResolvedKeybindingsConfig, options?: ShortcutMatchOptions) {
+  const platform = resolvePlatform(options);
+  const context = resolveContext(options);
+  const claimedShortcuts = new Set<string>();
+  return keybindings.toReversed().filter((binding) => {
+    if (!matchesWhenClause(binding.whenAst, context)) return false;
+    const conflictKey = shortcutConflictKey(binding.shortcut, platform);
+    if (claimedShortcuts.has(conflictKey)) return false;
+    claimedShortcuts.add(conflictKey);
+    return true;
+  });
+}
+
 export function effectiveShortcutsForCommand(
   keybindings: ResolvedKeybindingsConfig,
   command: KeybindingCommand,
   options?: ShortcutMatchOptions,
 ): KeybindingShortcut[] {
-  const platform = resolvePlatform(options);
-  const context = resolveContext(options);
-  const claimedShortcuts = new Set<string>();
-  const effective: KeybindingShortcut[] = [];
-
-  for (let index = keybindings.length - 1; index >= 0; index -= 1) {
-    const binding = keybindings[index];
-    if (!binding) continue;
-    if (!matchesWhenClause(binding.whenAst, context)) continue;
-
-    const conflictKey = shortcutConflictKey(binding.shortcut, platform);
-    if (claimedShortcuts.has(conflictKey)) {
-      continue;
-    }
-
-    claimedShortcuts.add(conflictKey);
-    if (binding.command === command) {
-      effective.push(binding.shortcut);
-    }
-  }
-
-  return effective;
+  return effectiveBindings(keybindings, options)
+    .filter((binding) => binding.command === command)
+    .map((binding) => binding.shortcut);
 }
 
 function findEffectiveShortcutForCommand(
@@ -294,6 +291,76 @@ export function modelPickerJumpIndexFromCommand(command: string): number | null 
     command as ModelPickerJumpKeybindingCommand,
   );
   return index === -1 ? null : index;
+}
+
+function rightPanelJumpIndexFromCommand(command: string): number | null {
+  const index = RIGHT_PANEL_JUMP_KEYBINDING_COMMANDS.indexOf(
+    command as RightPanelJumpKeybindingCommand,
+  );
+  return index === -1 ? null : index;
+}
+
+/**
+ * The right-panel tab a tab command selects. Next and previous wrap around,
+ * and the ninth jump is always the last tab, as in a browser.
+ */
+export function rightPanelTabTarget<Surface extends { readonly id: string }>(
+  surfaces: readonly Surface[],
+  activeSurfaceId: string | null,
+  command: KeybindingCommand,
+): Surface | null {
+  if (surfaces.length === 0) return null;
+  const jumpIndex = rightPanelJumpIndexFromCommand(command);
+  if (jumpIndex !== null) {
+    return (
+      (jumpIndex === RIGHT_PANEL_JUMP_KEYBINDING_COMMANDS.length - 1
+        ? surfaces.at(-1)
+        : surfaces[jumpIndex]) ?? null
+    );
+  }
+  const offset =
+    command === "rightPanel.nextTab" ? 1 : command === "rightPanel.previousTab" ? -1 : null;
+  if (offset === null) return null;
+  const activeIndex = surfaces.findIndex((surface) => surface.id === activeSurfaceId);
+  if (activeIndex === -1) return (offset === 1 ? surfaces[0] : surfaces.at(-1)) ?? null;
+  return surfaces[(activeIndex + offset + surfaces.length) % surfaces.length] ?? null;
+}
+
+/** Panel commands a focused page gives up, like the tab shortcuts a browser keeps for itself. */
+const PAGE_FORWARDED_PANEL_COMMANDS = new Set<KeybindingCommand>([
+  "rightPanel.newTab",
+  "rightPanel.close",
+  "rightPanel.nextTab",
+  "rightPanel.previousTab",
+  ...RIGHT_PANEL_JUMP_KEYBINDING_COMMANDS,
+]);
+
+/**
+ * Chords the desktop shell takes from a focused preview page: the browser
+ * window's own shortcuts. Everything else, including panel toggles and surface
+ * openers, stays with the page, as it would in a browser.
+ */
+export function previewForwardedShortcuts(
+  keybindings: ResolvedKeybindingsConfig,
+  platform = navigator.platform,
+) {
+  const useMetaForMod = isMacPlatform(platform);
+  return effectiveBindings(keybindings, {
+    platform,
+    context: { previewFocus: true, previewOpen: true, isWeb: false, isDesktop: true },
+  })
+    .filter(
+      ({ command }) =>
+        PAGE_FORWARDED_PANEL_COMMANDS.has(command) ||
+        (command.startsWith("preview.") && command !== "preview.toggle"),
+    )
+    .map(({ shortcut }) => ({
+      key: shortcut.key,
+      metaKey: shortcut.metaKey || (shortcut.modKey && useMetaForMod),
+      ctrlKey: shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod),
+      shiftKey: shortcut.shiftKey,
+      altKey: shortcut.altKey,
+    }));
 }
 
 export function isTerminalToggleShortcut(

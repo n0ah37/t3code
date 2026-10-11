@@ -14,6 +14,7 @@ import type {
   DesktopPreviewColorScheme,
   DesktopPreviewFavicon,
   DesktopPreviewOpenLinkEvent,
+  DesktopPreviewForwardedShortcut,
   DesktopPreviewPointerEvent,
   PreviewAnnotationPayload,
   PreviewAnnotationRect,
@@ -62,10 +63,15 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
-import { MENU_ACTION_CHANNEL, PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
+import {
+  MENU_ACTION_CHANNEL,
+  PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL,
+  PREVIEW_SHORTCUT_CHANNEL,
+} from "../ipc/channels.ts";
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewPasskeys from "./Passkeys.ts";
 import * as BrowserSession from "./BrowserSession.ts";
+import { forwardedShortcutEvent } from "./ForwardedShortcuts.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
   ANNOTATION_SEND_ENABLED_CHANNEL,
@@ -589,6 +595,11 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const displayMediaHandlerSessions = new WeakSet<Session>();
   let frameCaptureWindowOpen = true;
   let currentMainWindow: BrowserWindow | undefined;
+  // Read synchronously from before-input-event, so it lives outside a Ref.
+  let forwarding: {
+    readonly shortcuts: ReadonlyArray<DesktopPreviewForwardedShortcut>;
+    readonly tabIds: ReadonlySet<string>;
+  } = { shortcuts: [], tabIds: new Set() };
   let mainWindowCleanupFiber: Fiber.Fiber<void, never> | undefined;
   const tabLifecycleLocks = new Map<
     string,
@@ -1563,6 +1574,27 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         if (!input.isAutoRepeat) host.send(MENU_ACTION_CHANNEL, forwarded.command);
         return;
       }
+      // The app's browser-window shortcuts belong to the app while a person
+      // has a panel tab's page focused; the floating player and native editing
+      // keep their keys. Agent input never has real focus. getFocusedWebContents()
+      // can return a hidden guest after switching tabs, so ask this guest.
+      const shortcut =
+        forwarding.tabIds.has(tabId) &&
+        wc.isFocused() &&
+        !isPreviewEditingShortcut(input, hostPlatform)
+          ? forwardedShortcutEvent(input, forwarding.shortcuts, hostPlatform)
+          : null;
+      if (shortcut) {
+        event.preventDefault();
+        runFork(
+          attempt({ operation: "shortcut.forward", tabId, webContentsId: wc.id }, () => {
+            const host = currentMainWindow?.webContents;
+            if (host && !host.isDestroyed()) host.send(PREVIEW_SHORTCUT_CHANNEL, shortcut);
+          }).pipe(Effect.ignore),
+        );
+        return;
+      }
+      // Reload stays native so it also works in the floating player.
       if (isPreviewRefreshShortcut(input)) {
         event.preventDefault();
         runFork(
@@ -1570,7 +1602,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             wc.reload(),
           ).pipe(Effect.ignore),
         );
-        return;
       }
     };
     yield* Scope.addFinalizer(
@@ -3422,6 +3453,13 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     setAnnotationSendEnabled,
     setAudioMuted,
     setColorScheme,
+    setPanelShortcuts: (
+      shortcuts: ReadonlyArray<DesktopPreviewForwardedShortcut>,
+      tabIds: ReadonlyArray<string>,
+    ) =>
+      Effect.sync(() => {
+        forwarding = { shortcuts, tabIds: new Set(tabIds) };
+      }),
     setMainWindow,
     setForwardedShortcuts: (shortcuts: ReadonlyArray<PreviewForwardedShortcut>) =>
       Effect.sync(() => {
@@ -3670,6 +3708,11 @@ export class PreviewManager extends Context.Service<
       mimeType: string,
       data: Uint8Array,
     ) => Effect.Effect<DesktopPreviewRecordingArtifact, PreviewManagerError>;
+    /** Chords to take from focused pages, and the tabs whose pages give them up. */
+    readonly setPanelShortcuts: (
+      shortcuts: ReadonlyArray<DesktopPreviewForwardedShortcut>,
+      tabIds: ReadonlyArray<string>,
+    ) => Effect.Effect<void>;
     readonly subscribeStateChanges: (listener: Listener) => Effect.Effect<void, never, Scope.Scope>;
     readonly subscribePointerEvents: (
       listener: PointerEventListener,
@@ -3817,6 +3860,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     startRecording: operations.startRecording,
     stopRecording: operations.stopRecording,
     saveRecording: operations.saveRecording,
+    setPanelShortcuts: operations.setPanelShortcuts,
     subscribeStateChanges: operations.subscribeStateChanges,
     subscribePointerEvents: operations.subscribePointerEvents,
     subscribeOpenLinks: operations.subscribeOpenLinks,

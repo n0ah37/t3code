@@ -279,7 +279,11 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           persisted.some((entry) => entry.command === "terminal.toggle" && entry.key === "mod+j"),
         );
 
+        // The user's own mod+shift+r and mod+shift+b keep their chords from the new defaults.
+        const userChordCommands = new Set(["preview.hardRefresh", "threadPanel.toggle"]);
+        for (const command of userChordCommands) assert.isFalse(byCommand.has(command));
         for (const defaultRule of Keybindings.DEFAULT_KEYBINDINGS) {
+          if (userChordCommands.has(defaultRule.command)) continue;
           assert.isTrue(byCommand.has(defaultRule.command), `expected ${defaultRule.command}`);
         }
         assert.isTrue(byCommand.has("script.run-tests.run"));
@@ -396,6 +400,49 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       ),
     );
   });
+
+  it.effect("keeps a user's own chord when a new default would shadow it", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        // Custom, in a different context than the new default: still theirs.
+        { key: "cmd+t", command: "script.custom-action.run", when: "!terminalFocus" },
+        // Stock default sharing a chord with a panel-scoped default.
+        { key: "mod+shift+[", command: "thread.previous" },
+      ]);
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings.Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isFalse(persisted.some((entry) => entry.command === "rightPanel.newTab"));
+      assert.isTrue(
+        persisted.some(
+          (entry) => entry.command === "rightPanel.previousTab" && entry.key === "mod+shift+[",
+        ),
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("treats a chord recorded on a non-Latin layout as the user's", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      // Cyrillic е sits on the physical T key.
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+е", command: "script.custom-action.run" },
+      ]);
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings.Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isFalse(persisted.some((entry) => entry.command === "rightPanel.newTab"));
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
 
   it.effect("upserts custom keybindings to configured path", () =>
     Effect.gen(function* () {

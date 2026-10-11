@@ -7,6 +7,7 @@ import {
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
   type ResolvedKeybindingRule,
   type ResolvedKeybindingsConfig,
+  RIGHT_PANEL_JUMP_KEYBINDING_COMMANDS,
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 
@@ -200,6 +201,36 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
     command,
     when: "modelPickerOpen && isDesktop",
   })),
+  // A terminal tab from a terminal, a browser tab from a thread with the panel
+  // closed. With the panel open, mod+t opens its new-surface menu (rightPanel.new).
+  { key: "mod+t", command: "rightPanel.newTab", when: "!rightPanelOpen || terminalFocus" },
+  // The right panel behaves like a browser window while it has focus. These
+  // sit after the global rules they shadow (thread traversal and jumps,
+  // navigation history, copy reference, model picker) so they win there.
+  { key: "mod+shift+r", command: "preview.hardRefresh", when: "previewFocus && previewOpen" },
+  { key: "mod+[", command: "preview.back", when: "previewFocus && previewOpen" },
+  { key: "mod+]", command: "preview.forward", when: "previewFocus && previewOpen" },
+  { key: "mod+shift+c", command: "preview.pickElement", when: "previewFocus && previewOpen" },
+  { key: "mod+alt+i", command: "preview.devTools", when: "previewFocus && previewOpen" },
+  {
+    key: "mod+shift+m",
+    command: "preview.toggleDeviceToolbar",
+    when: "previewFocus && previewOpen",
+  },
+  { key: "ctrl+tab", command: "rightPanel.nextTab", when: "previewFocus" },
+  { key: "ctrl+shift+tab", command: "rightPanel.previousTab", when: "previewFocus" },
+  { key: "mod+shift+]", command: "rightPanel.nextTab", when: "previewFocus" },
+  { key: "mod+shift+[", command: "rightPanel.previousTab", when: "previewFocus" },
+  ...RIGHT_PANEL_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
+    key: `mod+${index + 1}`,
+    command,
+    when: "previewFocus && isDesktop",
+  })),
+  { key: "mod+alt+shift+`", command: "rightPanel.newTerminal", when: "!terminalFocus" },
+  { key: "mod+alt+shift+f", command: "rightPanel.openFiles", when: "!terminalFocus" },
+  { key: "mod+alt+shift+p", command: "rightPanel.openPullRequest", when: "!terminalFocus" },
+  { key: "mod+alt+shift+l", command: "rightPanel.openPullRequests", when: "!terminalFocus" },
+  { key: "mod+alt+shift+m", command: "rightPanel.openDevice", when: "!terminalFocus" },
   { key: "c", command: "usage.cost", when: "usagePageOpen" },
   { key: "t", command: "usage.tokens", when: "usagePageOpen" },
   { key: "l", command: "usage.limits", when: "usagePageOpen" },

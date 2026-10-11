@@ -84,6 +84,7 @@ import { isElectron } from "../env";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { releaseProjectDraftUploads } from "../lib/composerDraftUploads";
+import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform } from "../lib/utils";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
@@ -3406,6 +3407,7 @@ export default function LegacySidebar() {
   const getCurrentSidebarShortcutContext = useCallback(
     () => ({
       terminalFocus: isTerminalFocused(),
+      previewFocus: isPreviewFocused(),
       terminalOpen: routeTerminalOpen,
       modelPickerOpen: isModelPickerOpen(),
     }),
@@ -3612,6 +3614,8 @@ export default function LegacySidebar() {
   const sidebarShortcutContext = {
     terminalFocus: terminalFocused,
     terminalOpen: routeTerminalOpen,
+    // The right panel claims the same chords for its tabs.
+    previewFocus: isPreviewFocused(),
     modelPickerOpen: isModelPickerOpen(),
   };
   const threadJumpLabelByKey = useMemo(

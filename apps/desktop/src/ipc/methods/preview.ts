@@ -11,6 +11,7 @@ import {
   DesktopPreviewSetAudioMutedInputSchema,
   DesktopPreviewSetColorSchemeInputSchema,
   DesktopPreviewSetZoomFactorInputSchema,
+  DesktopPreviewSetPanelShortcutsInputSchema,
   BrowserImportResult,
   BrowserImportSource,
   DesktopPreviewClearDataInputSchema,
@@ -192,6 +193,18 @@ export const setAudioMuted = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.preview.setAudioMuted")(function* ({ tabId, audioMuted }) {
     const manager = yield* PreviewManager.PreviewManager;
     yield* manager.setAudioMuted(tabId, audioMuted);
+  }),
+});
+export const setPanelShortcuts = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_SET_PANEL_SHORTCUTS_CHANNEL,
+  payload: DesktopPreviewSetPanelShortcutsInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.setPanelShortcuts")(function* ({
+    shortcuts,
+    tabIds,
+  }) {
+    const manager = yield* PreviewManager.PreviewManager;
+    yield* manager.setPanelShortcuts(shortcuts, tabIds);
   }),
 });
 export const openDevTools = tabMethod(
@@ -450,6 +463,7 @@ export const methods = [
   setColorScheme,
   setZoomFactor,
   setAudioMuted,
+  setPanelShortcuts,
   openDevTools,
   clearCookies,
   clearCache,

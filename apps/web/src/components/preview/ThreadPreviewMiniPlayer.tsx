@@ -174,7 +174,7 @@ function BrowserMiniPlayer({ threadRef, tabId, miniPlayer }: Props & { readonly 
     }
   };
 
-  if (!snapshot) return null;
+  if (!snapshot || snapshot.navStatus._tag === "Idle") return null;
   const poppedOut = serverTab ? serverPictureInPicture : Boolean(desktopOverlay?.pictureInPicture);
   const canPopOut = serverTab ? supportsServerPictureInPicture() : true;
 
