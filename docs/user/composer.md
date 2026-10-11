@@ -217,6 +217,10 @@ Provider commands must start the message to run. T3 Code commands such as
 Send `/compact` in an existing conversation to reduce context usage when the
 provider supports it. Web and desktop also offer compaction from the context meter.
 
+Hover the context meter on web and desktop to see the thread's session cost. It is the
+provider's own estimate, shown for Claude, OpenCode, and ACP agents that report cost. Other
+providers show **Unpriced**.
+
 ## Goals
 
 With Codex and Claude, send `/goal` followed by what "done" means, for example

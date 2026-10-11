@@ -229,6 +229,8 @@ interface ActiveTurn {
     cacheWrite: number;
     output: number;
     reasoning: number;
+    /** USD, as OpenCode prices each step; null once a step carries no price. */
+    cost: number | null;
   };
   steps: number;
   lastStep: Tokens | undefined;
@@ -1284,7 +1286,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       startedAt: new Map(),
       ordinals: new Map(),
       nextOrdinal: providerTurn.ordinal * 100 + 1,
-      usage: { input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0 },
+      usage: { input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0, cost: 0 },
       steps: 0,
       lastStep: undefined,
       before: undefined,
@@ -1788,6 +1790,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         status: terminal.status,
         completedAt,
         turnTokenUsage: turnTokenUsage(turn, terminal.status),
+        ...(turn.steps === 0 || turn.usage.cost === null ? {} : { costUsd: turn.usage.cost }),
         ...(lastStep === undefined
           ? {}
           : {
@@ -2348,6 +2351,9 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           turn.usage.cacheWrite += tokens.cache.write;
           turn.usage.output += tokens.output + tokens.reasoning;
           turn.usage.reasoning += tokens.reasoning;
+          const cost = event.data.cost;
+          turn.usage.cost =
+            turn.usage.cost === null || cost === undefined ? null : turn.usage.cost + cost;
           return;
         }
         case "session.execution.started":

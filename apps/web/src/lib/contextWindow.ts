@@ -22,6 +22,8 @@ export type ContextWindowSnapshot = NullableContextWindowUsage & {
   readonly usedPercentage: number | null;
   readonly remainingPercentage: number | null;
   readonly updatedAt: string;
+  /** The thread finished turns, but its provider priced none of them. */
+  readonly costUnreported?: true;
 };
 
 /** Newest usage report across a thread's provider turns. Snapshots order turns
@@ -38,6 +40,34 @@ export function latestProviderTurnTokenUsage(
     }
   }
   return latest;
+}
+
+/** What the provider says the thread's turns cost, or null when it priced none. */
+export function sumProviderTurnCostUsd(
+  turns: ReadonlyArray<Pick<OrchestrationV2ProviderTurn, "costUsd">>,
+): number | null {
+  let total: number | null = null;
+  for (const { costUsd } of turns) {
+    if (costUsd !== undefined) total = (total ?? 0) + costUsd;
+  }
+  return total;
+}
+
+/**
+ * Puts the thread's cost on its snapshot. A cost the provider sent with its
+ * context report wins; turns that finished unpriced mark the cost unreported
+ * rather than showing zero.
+ */
+export function withThreadCost(
+  snapshot: ContextWindowSnapshot | null,
+  turns: ReadonlyArray<Pick<OrchestrationV2ProviderTurn, "costUsd" | "completedAt">>,
+): ContextWindowSnapshot | null {
+  if (snapshot === null || snapshot.cost !== null) return snapshot;
+  const costUsd = sumProviderTurnCostUsd(turns);
+  if (costUsd !== null) return { ...snapshot, cost: { amount: costUsd, currency: "USD" } };
+  return turns.some((turn) => turn.completedAt !== null)
+    ? { ...snapshot, costUnreported: true }
+    : snapshot;
 }
 
 /** Prefers the provider's live usage report (#8144); falls back to the last compaction item. */
@@ -76,7 +106,7 @@ export function deriveLatestContextWindowSnapshot(
       durationMs: null,
       compactsAutomatically: true,
       autoCompactThreshold: null,
-      cost: null,
+      cost: providerThread?.contextUsage?.cost ?? null,
       updatedAt: liveUsage.updatedAt,
     };
   }

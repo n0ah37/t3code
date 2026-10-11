@@ -136,11 +136,11 @@ export function ContextWindowMeter(props: {
               </span>
             </div>
           ) : null}
-          {usage.cost != null ? (
+          {usage.cost != null || usage.costUnreported ? (
             <div className="flex items-center justify-between gap-3 text-2xs leading-4">
-              <span className="text-secondary-label">Cost</span>
+              <span className="text-secondary-label">Session cost</span>
               <span className="font-medium tabular-nums text-secondary-label">
-                {formatContextWindowCost(usage.cost)}
+                {usage.cost != null ? formatContextWindowCost(usage.cost) : "Unpriced"}
               </span>
             </div>
           ) : null}

@@ -638,6 +638,9 @@ export function upsertProviderTurn(
     ...((next.tokenUsage ?? current?.tokenUsage) === undefined
       ? {}
       : { tokenUsage: next.tokenUsage ?? current?.tokenUsage }),
+    ...((next.costUsd ?? current?.costUsd) === undefined
+      ? {}
+      : { costUsd: next.costUsd ?? current?.costUsd }),
   });
 }
 

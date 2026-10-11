@@ -501,6 +501,7 @@ import {
 import {
   deriveLatestContextWindowSnapshot,
   latestProviderTurnTokenUsage,
+  withThreadCost,
 } from "../lib/contextWindow";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
@@ -3620,12 +3621,15 @@ export default function ChatView(props: ChatViewProps) {
     runlessWorkStartedAt !== null;
   const activeContextWindow = useMemo(
     () =>
-      deriveLatestContextWindowSnapshot(
-        serverVisibleTurnItems ?? [],
-        activeThreadLiveTokenUsage,
-        serverProjection?.providerThreads.find(
-          (thread) => thread.id === serverProjection.thread.activeProviderThreadId,
+      withThreadCost(
+        deriveLatestContextWindowSnapshot(
+          serverVisibleTurnItems ?? [],
+          activeThreadLiveTokenUsage,
+          serverProjection?.providerThreads.find(
+            (thread) => thread.id === serverProjection.thread.activeProviderThreadId,
+          ),
         ),
+        serverProjection?.providerTurns ?? [],
       ),
     [activeThreadLiveTokenUsage, serverVisibleTurnItems, serverProjection],
   );
