@@ -2343,6 +2343,8 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     // A CLI process opened after the first streams from its own queue, so the
     // first one can exit (Queue.shutdown) and a later turn can start another.
     readonly freshQueueOnReopen?: boolean;
+    readonly forkSession?: ClaudeAdapterV2.ClaudeAgentSdkQueryRunnerShape["forkSession"];
+    readonly deleteSession?: ClaudeAdapterV2.ClaudeAgentSdkQueryRunnerShape["deleteSession"];
   }) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -2451,7 +2453,8 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 close: options?.close?.(sdkMessages) ?? Effect.void,
               };
             }),
-          forkSession: () => Effect.die("unused forkSession"),
+          forkSession: options?.forkSession ?? (() => Effect.die("unused forkSession")),
+          ...(options?.deleteSession === undefined ? {} : { deleteSession: options.deleteSession }),
           subagentLaunchToolUseId: () => Effect.succeed(options?.subagentLaunchToolUseId ?? null),
           assertComplete: Effect.void,
         },
@@ -2524,6 +2527,97 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       };
     });
   const makeWakeHarness = makeWakeHarnessWithOptions();
+
+  it.effect("keeps an idle thread's 1-hour cache warm through a throwaway fork", () =>
+    Effect.gen(function* () {
+      const forkedFrom: Array<string> = [];
+      const deleted: Array<string> = [];
+      const harness = yield* makeWakeHarnessWithOptions({
+        settings: { ...DEFAULT_CLAUDE_SETTINGS, keepCacheWarm: "1h" },
+        freshQueueOnReopen: true,
+        forkSession: (input) =>
+          Effect.sync(() => {
+            forkedFrom.push(input.sessionId);
+            return { sessionId: "cache-ping-fork" };
+          }),
+        deleteSession: (input) =>
+          Effect.sync(() => {
+            deleted.push(input.sessionId);
+          }),
+      });
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("cache-warm"),
+          text: "Hello",
+          attachments: [],
+        }),
+      );
+      const threadOptions = harness.getOpenedOptions();
+      yield* harness.offerAndWait(
+        claudeSdkFrame({
+          type: "assistant",
+          uuid: "cache-warm-assistant",
+          session_id: WAKE_NATIVE_SESSION,
+          parent_tool_use_id: null,
+          message: {
+            id: "cache-warm-message",
+            type: "message",
+            role: "assistant",
+            model: "claude-sonnet-4-6",
+            content: [{ type: "text", text: "Hi" }],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: {
+              input_tokens: 2,
+              output_tokens: 1,
+              cache_creation_input_tokens: 5_000,
+              cache_read_input_tokens: 40_000,
+              cache_creation: { ephemeral_1h_input_tokens: 5_000, ephemeral_5m_input_tokens: 0 },
+            },
+          },
+        }),
+      );
+      yield* Queue.offer(
+        harness.sdkMessages,
+        makeResultFrame({ uuid: "cache-warm-result", result: "Hi" }),
+      );
+      yield* Queue.take(harness.terminalReceipts);
+      assert.deepEqual(forkedFrom, []);
+
+      yield* TestClock.adjust("56 minutes");
+      yield* awaitUntil(() => harness.processQueues.length === 2, "cache ping process");
+      const pingOptions = harness.getOpenedOptions();
+      assert.deepEqual(forkedFrom, [WAKE_NATIVE_SESSION]);
+      assert.equal(pingOptions?.resume, "cache-ping-fork");
+      // Same tools, model and system prompt as the thread, so the same cache entry.
+      assert.deepEqual(pingOptions?.tools, threadOptions?.tools);
+      assert.equal(pingOptions?.model, threadOptions?.model);
+      assert.deepEqual(pingOptions?.systemPrompt, threadOptions?.systemPrompt);
+
+      const usageUpdates = () =>
+        harness.events.filter(
+          (event) => event.type === "provider_turn.updated" && event.providerTurn.tokenUsage,
+        ).length;
+      const updatesBeforePing = usageUpdates();
+      yield* Queue.offer(
+        harness.processQueues[1]!,
+        makeResultFrame({ uuid: "cache-ping-result", result: "." }),
+      );
+      yield* awaitUntil(() => deleted.length === 1, "throwaway fork deleted");
+      assert.deepEqual(deleted, ["cache-ping-fork"]);
+      yield* awaitUntil(() => usageUpdates() > updatesBeforePing, "refreshed cache countdown");
+      // The ping never reaches the thread as a turn.
+      assert.lengthOf(harness.terminalEvents(), 1);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
 
   it.effect.each([
     { isError: false, title: "Check weather" },

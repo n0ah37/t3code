@@ -17,6 +17,7 @@ import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { normalizeClaudeTurnTokenUsage } from "../../provider/ClaudeTurnTokenUsage.ts";
 import {
   type CanUseTool,
+  deleteSession as deleteClaudeSession,
   forkSession as forkClaudeSession,
   type ForkSessionOptions,
   type ForkSessionResult,
@@ -91,6 +92,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -172,6 +174,19 @@ function claudeContextWindow(modelSelection: ModelSelection): number | null {
   );
 }
 
+const CLAUDE_ONE_HOUR_CACHE_MS = 60 * 60_000;
+// Ping this long before the cache would expire, leaving room for a slow fork.
+const CLAUDE_CACHE_PING_LEAD_MS = 5 * 60_000;
+const CLAUDE_CACHE_PING_PROMPT =
+  "[Automated cache refresh, not from the user. Reply with a single period and nothing else.]";
+const CLAUDE_KEEP_CACHE_WARM_HOURS: Record<ClaudeSettings["keepCacheWarm"], number> = {
+  off: 0,
+  "1h": 1,
+  "2h": 2,
+  "4h": 4,
+  "8h": 8,
+};
+
 interface ClaudeCacheCreation {
   readonly ephemeral_1h_input_tokens: number;
   readonly ephemeral_5m_input_tokens: number;
@@ -184,7 +199,7 @@ function claudePromptCacheTtlMs(
   cacheCreation: ClaudeCacheCreation | null | undefined,
 ): number | undefined {
   if (!cacheCreation) return undefined;
-  if (cacheCreation.ephemeral_1h_input_tokens > 0) return 60 * 60_000;
+  if (cacheCreation.ephemeral_1h_input_tokens > 0) return CLAUDE_ONE_HOUR_CACHE_MS;
   if (cacheCreation.ephemeral_5m_input_tokens > 0) return 5 * 60_000;
   return undefined;
 }
@@ -439,6 +454,11 @@ export interface ClaudeAgentSdkQueryRunnerShape {
   readonly forkSession: (
     input: ClaudeAgentSdkSessionForkInput,
   ) => Effect.Effect<ForkSessionResult, ClaudeAgentSdkQueryRunnerError>;
+  /** Removes a session's stored transcript. Optional: only cache pings use it. */
+  readonly deleteSession?: (input: {
+    readonly sessionId: string;
+    readonly dir?: string;
+  }) => Effect.Effect<void, ClaudeAgentSdkQueryRunnerError>;
   /** The tool call that launched a subagent, read from the CLI's session storage. */
   readonly subagentLaunchToolUseId: (
     input: ClaudeAgentSdkSubagentLookupInput,
@@ -925,6 +945,12 @@ export const layerQueryRunner: Layer.Layer<
         });
         return result;
       }),
+      deleteSession: (input) =>
+        Effect.tryPromise({
+          try: () =>
+            deleteClaudeSession(input.sessionId, input.dir === undefined ? {} : { dir: input.dir }),
+          catch: (cause) => queryRunnerError(cause, "deleteSession"),
+        }),
       subagentLaunchToolUseId: Effect.fn("ClaudeAgentSdkQueryRunner.subagentLaunchToolUseId")(
         function* (input: ClaudeAgentSdkSubagentLookupInput) {
           const protocolLogger = makeClaudeAgentSdkProtocolLogger({
@@ -3017,6 +3043,11 @@ interface ClaudeLiveQueryContext {
   attributedCostUsd: number;
   // The prompt cache lifetime this process last wrote.
   promptCacheTtlMs?: number;
+  // What this process was opened with; a cache ping reopens a fork with the
+  // same options so its prompt prefix, and so its cache entry, is identical.
+  readonly options: ClaudeAgentSdkQueryOptions;
+  // The last context report, re-sent with a fresh time after a cache ping.
+  lastTokenUsage?: OrchestrationV2ProviderTurn["tokenUsage"];
   // Registry entries still running when this process opened. Their process
   // is gone and never reports their end; any later task_started replaces the
   // entry, so an entry still in this set runs nowhere.
@@ -3406,6 +3437,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         });
         const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
         const activeTurn = yield* Ref.make<ActiveClaudeTurnContext | null>(null);
+        // The idle thread's cache-warming loop, if one is waiting.
+        const cacheWarmFiber = yield* Ref.make<Fiber.Fiber<void> | null>(null);
         const sdkMessageLock = yield* Semaphore.make(1);
         // Survives turn settle: members mostly finish after the launching
         // turn has ended, and each transition must be emitted exactly once.
@@ -5701,6 +5734,114 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           subagentToolCalls.clear();
         });
 
+        const stopKeepingCacheWarm = Effect.gen(function* () {
+          const fiber = yield* Ref.getAndSet(cacheWarmFiber, null);
+          if (fiber !== null) yield* Fiber.interrupt(fiber);
+        });
+
+        // Re-reads the conversation in a throwaway fork opened with the live
+        // process's own options. Same prefix, so the same cache entry is read
+        // and its lifetime restarts; the thread's own transcript is untouched.
+        const pingPromptCache = Effect.fnUntraced(function* (
+          live: ClaudeLiveQueryContext,
+          threadId: ThreadId,
+        ) {
+          const dir = live.options.cwd;
+          const fork = yield* queryRunner.forkSession({
+            sessionId: live.nativeThreadId,
+            options: dir === undefined ? {} : { dir },
+            threadId,
+            providerSessionId: input.providerSessionId,
+          });
+          const { sessionId: _sessionId, resume: _resume, ...shared } = live.options;
+          const { resumeSessionAt: _resumeSessionAt, ...sharedOptions } =
+            shared as typeof shared & {
+              readonly resumeSessionAt?: string;
+            };
+          const denyTools: CanUseTool = async () => ({
+            behavior: "deny",
+            message: "Automated cache refresh: tools are off.",
+          });
+          const ping = Effect.gen(function* () {
+            const session = yield* queryRunner.open({
+              threadId,
+              providerSessionId: input.providerSessionId,
+              options: { ...sharedOptions, resume: fork.sessionId, canUseTool: denyTools },
+            });
+            yield* session.offer({
+              type: "user",
+              // Lands only in the throwaway fork. Neutral wording, so nothing reads as
+              // an answer to the conversation, and a one-character reply.
+              message: { role: "user", content: CLAUDE_CACHE_PING_PROMPT },
+              parent_tool_use_id: null,
+            });
+            return yield* session.messages.pipe(
+              Stream.filter((message) => message.type === "result"),
+              Stream.runHead,
+              Effect.ensuring(session.close.pipe(Effect.ignore)),
+            );
+          });
+          return yield* ping.pipe(
+            Effect.timeout("3 minutes"),
+            Effect.ensuring(
+              (
+                queryRunner.deleteSession?.({
+                  sessionId: fork.sessionId,
+                  ...(dir === undefined ? {} : { dir }),
+                }) ?? Effect.void
+              ).pipe(Effect.ignore),
+            ),
+          );
+        });
+
+        // After a completed turn, ping the 1-hour cache shortly before it
+        // expires, once per hour the setting allows. A new turn, a replaced
+        // process or the session closing ends the loop.
+        const keepCacheWarm = Effect.fnUntraced(function* (
+          context: ActiveClaudeTurnContext,
+          completedAt: DateTime.Utc,
+        ) {
+          yield* stopKeepingCacheWarm;
+          const hours = CLAUDE_KEEP_CACHE_WARM_HOURS[adapterOptions.settings.keepCacheWarm];
+          const live = yield* Ref.get(queryContext);
+          if (hours === 0 || live === null || live.promptCacheTtlMs !== CLAUDE_ONE_HOUR_CACHE_MS) {
+            return;
+          }
+          const loop = Effect.gen(function* () {
+            for (let ping = 0; ping < hours; ping += 1) {
+              yield* Effect.sleep(CLAUDE_ONE_HOUR_CACHE_MS - CLAUDE_CACHE_PING_LEAD_MS);
+              if (
+                (yield* Ref.get(queryContext)) !== live ||
+                (yield* Ref.get(activeTurn)) !== null
+              ) {
+                return;
+              }
+              const pinged = yield* pingPromptCache(live, context.input.threadId).pipe(
+                Effect.map(Option.isSome),
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("Claude cache ping failed", cause).pipe(Effect.as(false)),
+                ),
+              );
+              if (!pinged) return;
+              if (live.lastTokenUsage !== undefined) {
+                // Moves the cache countdown forward; the turn itself is unchanged.
+                yield* emitProviderEvent({
+                  type: "provider_turn.updated",
+                  driver: CLAUDE_PROVIDER,
+                  providerTurn: {
+                    ...providerTurnPayload({ context, status: "completed", completedAt }),
+                    tokenUsage: {
+                      ...live.lastTokenUsage,
+                      updatedAt: DateTime.formatIso(yield* DateTime.now),
+                    },
+                  },
+                });
+              }
+            }
+          });
+          yield* Ref.set(cacheWarmFiber, yield* loop.pipe(Effect.forkIn(sessionScope)));
+        });
+
         const finalizeActiveTurn = Effect.fnUntraced(function* (input: {
           readonly context: ActiveClaudeTurnContext;
           readonly status: Extract<
@@ -5849,6 +5990,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               : claudeTurnCostUsd(costQuery.attributedCostUsd, totalCostUsd);
           if (costQuery !== null && costUsd !== undefined && totalCostUsd !== undefined) {
             costQuery.attributedCostUsd = totalCostUsd;
+          }
+          if (input.status === "completed") {
+            yield* keepCacheWarm(input.context, input.completedAt);
           }
           const terminalEvent: ProviderAdapter.ProviderAdapterV2Event =
             input.status === "failed"
@@ -6986,8 +7130,11 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 DateTime.formatIso(now),
                 usageQuery?.promptCacheTtlMs,
               );
-              if (usageQuery !== null && tokenUsage.promptCacheTtlMs !== undefined) {
-                usageQuery.promptCacheTtlMs = tokenUsage.promptCacheTtlMs;
+              if (usageQuery !== null) {
+                usageQuery.lastTokenUsage = tokenUsage;
+                if (tokenUsage.promptCacheTtlMs !== undefined) {
+                  usageQuery.promptCacheTtlMs = tokenUsage.promptCacheTtlMs;
+                }
               }
               yield* emitProviderEvent({
                 type: "provider_turn.updated",
@@ -8370,6 +8517,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               : existing?.nativeThreadId === nativeThreadId
                 ? existing.attributedCostUsd
                 : (turnInput.providerThread.costTotalUsd ?? 0),
+            options: queryOptions,
             subagentsFromEarlierProcesses: new Set(
               [...(yield* Ref.get(sessionSubagentsByTaskId)).values()].filter(
                 (subagent) => subagent.task.status === "running",
@@ -8529,6 +8677,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     skillNames: yield* userInvocableSkillNames(turnInput.runtimePolicy.cwd),
                     uuid: promptUuid,
                   });
+            yield* stopKeepingCacheWarm;
             const querySession = yield* openQuery(turnInput, nativeThreadId);
             const attachTurn = Effect.gen(function* () {
               querySession.lastTurn = context;
