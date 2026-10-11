@@ -24,6 +24,9 @@ export type ContextWindowSnapshot = NullableContextWindowUsage & {
   readonly updatedAt: string;
   /** Finished turns the provider did not price; absent when there are none. */
   readonly unpricedTurnCount?: number;
+  /** When the provider's prompt cache for this context runs out, in epoch ms.
+      Present only when the provider reported the cache lifetime. */
+  readonly promptCacheExpiresAtMs?: number;
 };
 
 /** Newest usage report across a thread's provider turns. Snapshots order turns
@@ -40,6 +43,16 @@ export function latestProviderTurnTokenUsage(
     }
   }
   return latest;
+}
+
+/** A cache read or write restarts its lifetime, so it ends one TTL after the last report. */
+function promptCacheExpiry(
+  usage: Pick<OrchestrationV2ProviderTurnTokenUsage, "promptCacheTtlMs" | "updatedAt">,
+): { readonly promptCacheExpiresAtMs?: number } {
+  const reportedAt = Date.parse(usage.updatedAt);
+  return usage.promptCacheTtlMs === undefined || !Number.isFinite(reportedAt)
+    ? {}
+    : { promptCacheExpiresAtMs: reportedAt + usage.promptCacheTtlMs };
 }
 
 /**
@@ -104,6 +117,7 @@ export function deriveLatestContextWindowSnapshot(
       autoCompactThreshold: null,
       cost: providerThread?.contextUsage?.cost ?? null,
       updatedAt: liveUsage.updatedAt,
+      ...promptCacheExpiry(liveUsage),
     };
   }
   const providerUsage = providerThread?.contextUsage;

@@ -77,6 +77,20 @@ describe("live provider-turn usage (#8144)", () => {
     expect(snapshot?.usedPercentage).toBe(21);
   });
 
+  it("ends the prompt cache one lifetime after the last report", () => {
+    const snapshot = deriveLatestContextWindowSnapshot([], {
+      usedTokens: 42_000,
+      promptCacheTtlMs: 60 * 60_000,
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    });
+    expect(snapshot?.promptCacheExpiresAtMs).toBe(Date.parse("2026-08-27T01:00:00.000Z"));
+    const unknown = deriveLatestContextWindowSnapshot([], {
+      usedTokens: 42_000,
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    });
+    expect(unknown?.promptCacheExpiresAtMs).toBeUndefined();
+  });
+
   it("handles a report without a known context window", () => {
     const snapshot = deriveLatestContextWindowSnapshot([], {
       usedTokens: 42_000,

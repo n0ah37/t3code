@@ -928,6 +928,24 @@ describe("ClaudeAdapterV2 context usage", () => {
       undefined,
     );
   });
+
+  it("keeps the known TTL when a response only read the cache", () => {
+    const usage = (cache_read_input_tokens: number) =>
+      ClaudeAdapterV2.claudeProviderTurnTokenUsage(
+        {
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_read_input_tokens,
+          cache_creation: { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 0 },
+        },
+        CLAUDE_TEST_MODEL_SELECTION,
+        "2026-08-29T00:00:00.000Z",
+        60 * 60_000,
+      ).promptCacheTtlMs;
+
+    assert.strictEqual(usage(40_000), 60 * 60_000);
+    assert.strictEqual(usage(0), undefined);
+  });
 });
 
 describe("ClaudeAdapterV2 session permissions", () => {

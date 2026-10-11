@@ -158,3 +158,14 @@ export function formatSessionCost(
   if (unpricedTurnCount === 0) return priced;
   return `${priced} + ${unpricedTurnCount} unpriced ${unpricedTurnCount === 1 ? "turn" : "turns"}`;
 }
+
+/** Countdown to a prompt cache's expiry: "42:07", "1:00:00", or "Expired". */
+export function formatPromptCacheRemaining(remainingMs: number): string {
+  if (remainingMs <= 0) return "Expired";
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const mmss = `${String(minutes).padStart(hours > 0 ? 2 : 1, "0")}:${String(seconds).padStart(2, "0")}`;
+  return hours > 0 ? `${hours}:${mmss}` : mmss;
+}
