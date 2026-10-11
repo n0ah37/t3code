@@ -177,6 +177,8 @@ function claudeContextWindow(modelSelection: ModelSelection): number | null {
 const CLAUDE_ONE_HOUR_CACHE_MS = 60 * 60_000;
 // Ping this long before the cache would expire, leaving room for a slow fork.
 const CLAUDE_CACHE_PING_LEAD_MS = 5 * 60_000;
+const CLAUDE_CACHE_PING_PROMPT =
+  "[Automated cache refresh, not from the user. Reply with a single period and nothing else.]";
 const CLAUDE_KEEP_CACHE_WARM_HOURS: Record<ClaudeSettings["keepCacheWarm"], number> = {
   off: 0,
   "1h": 1,
@@ -5758,7 +5760,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             };
           const denyTools: CanUseTool = async () => ({
             behavior: "deny",
-            message: "This is a cache ping. Reply without tools.",
+            message: "Automated cache refresh: tools are off.",
           });
           const ping = Effect.gen(function* () {
             const session = yield* queryRunner.open({
@@ -5768,7 +5770,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             });
             yield* session.offer({
               type: "user",
-              message: { role: "user", content: "Reply with the single word ok. Use no tools." },
+              // Lands only in the throwaway fork. Neutral wording, so nothing reads as
+              // an answer to the conversation, and a one-character reply.
+              message: { role: "user", content: CLAUDE_CACHE_PING_PROMPT },
               parent_tool_use_id: null,
             });
             return yield* session.messages.pipe(

@@ -2604,7 +2604,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       const updatesBeforePing = usageUpdates();
       yield* Queue.offer(
         harness.processQueues[1]!,
-        makeResultFrame({ uuid: "cache-ping-result", result: "ok" }),
+        makeResultFrame({ uuid: "cache-ping-result", result: "." }),
       );
       yield* awaitUntil(() => deleted.length === 1, "throwaway fork deleted");
       assert.deepEqual(deleted, ["cache-ping-fork"]);
