@@ -137,6 +137,32 @@ function keybindingShortcutContext(rule: KeybindingRule): string | null {
   return `${encoded}\u0000${rule.when ?? ""}`;
 }
 
+/**
+ * Puts backfilled defaults ahead of the persisted rules, so a user's own rule
+ * for the same keys keeps priority. A default that an untouched earlier default
+ * already in the file would shadow goes right after that rule instead: the
+ * default list's order already says which of the two wins.
+ */
+function placeMissingDefaults(
+  missing: ReadonlyArray<KeybindingRule>,
+  persisted: ReadonlyArray<KeybindingRule>,
+): KeybindingRule[] {
+  const defaultIndex = (rule: KeybindingRule) =>
+    DEFAULT_KEYBINDINGS.findIndex((defaultRule) => isSameKeybindingRule(defaultRule, rule));
+  const placed = [...persisted];
+  const leading: KeybindingRule[] = [];
+  for (const rule of missing) {
+    const ownIndex = defaultIndex(rule);
+    const shadowing = placed.findLastIndex((entry) => {
+      const entryIndex = defaultIndex(entry);
+      return entry.key === rule.key && entryIndex !== -1 && entryIndex < ownIndex;
+    });
+    if (shadowing === -1) leading.push(rule);
+    else placed.splice(shadowing + 1, 0, rule);
+  }
+  return [...leading, ...placed];
+}
+
 function hasSameShortcutContext(left: KeybindingRule, right: KeybindingRule): boolean {
   const leftContext = keybindingShortcutContext(left);
   const rightContext = keybindingShortcutContext(right);
@@ -648,7 +674,7 @@ const make = Effect.gen(function* () {
         });
       }
       if (defaultsToAppend.length > 0) {
-        yield* writeConfigAtomically([...defaultsToAppend, ...customConfig]);
+        yield* writeConfigAtomically(placeMissingDefaults(defaultsToAppend, customConfig));
       }
       // A late default skipped at max entries stays pending for a later start.
       const settledLateDefaults = pendingLateDefaults.filter(

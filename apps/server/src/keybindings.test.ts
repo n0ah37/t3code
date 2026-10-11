@@ -424,6 +424,12 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           (entry) => entry.command === "rightPanel.previousTab" && entry.key === "mod+shift+[",
         ),
       );
+      // Later rules win, so the panel rule must follow the stock thread rule it overrides.
+      const threadIndex = persisted.findIndex((entry) => entry.command === "thread.previous");
+      const panelIndex = persisted.findIndex(
+        (entry) => entry.command === "rightPanel.previousTab" && entry.key === "mod+shift+[",
+      );
+      assert.isAbove(panelIndex, threadIndex);
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
